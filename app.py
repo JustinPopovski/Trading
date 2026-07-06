@@ -93,11 +93,34 @@ for ticker in tickers:
 
     df = yf.download(ticker, period="1y")
 
-    # Safety check — prevents crashes
-    if df.empty or "Close" not in df.columns:
+    # ─────────────────────────────────────────────
+    # STRONG SAFETY CHECKS — prevents ALL crashes
+    # ─────────────────────────────────────────────
+
+    # 1. DataFrame must not be empty
+    if df.empty:
         st.warning(f"⚠️ No data returned for {ticker}. Skipping.")
         continue
 
+    # 2. Must contain required OHLC columns
+    required_cols = {"Close", "High", "Low"}
+    if not required_cols.issubset(df.columns):
+        st.warning(f"⚠️ Missing required price data for {ticker}. Skipping.")
+        continue
+
+    # 3. Close column must contain real numeric values
+    if df["Close"].dropna().empty:
+        st.warning(f"⚠️ Close prices are all NaN for {ticker}. Skipping.")
+        continue
+
+    # 4. Ensure High/Low also contain numeric values
+    if df["High"].dropna().empty or df["Low"].dropna().empty:
+        st.warning(f"⚠️ High/Low prices invalid for {ticker}. Skipping.")
+        continue
+
+    # ─────────────────────────────────────────────
+    # Indicators (safe to run now)
+    # ─────────────────────────────────────────────
     df = macd(df)
     df = trend_filter(df)
     df = pivots(df)
