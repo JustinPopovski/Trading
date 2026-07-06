@@ -1,29 +1,23 @@
-for ticker in tickers:
-    df = yf.download(ticker, period="1y")
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
 
-    # Safety check
-    if df.empty or "Close" not in df.columns:
-        st.warning(f"⚠️ No data returned for {ticker}. Skipping.")
-        continue
+st.set_page_config(page_title="Trading Dashboard", layout="wide")
+st.title("📈 MACD + 200-Day + Support/Resistance + Fibonacci Trading Dashboard")
 
-    df = macd(df)
-    df = trend_filter(df)
-    df = pivots(df)
-    df = generate_signals(df)
+# ─────────────────────────────────────────────
+# Load tickers FIRST — before any loops
+# ─────────────────────────────────────────────
+file_path = "Tickers.txt"
 
-    fib = fibonacci_levels(df)
-    last = df.iloc[-1]
+try:
+    with open(file_path, "r") as f:
+        tickers = [line.strip().upper() for line in f if line.strip()]
+except:
+    st.error("Tickers.txt not found. Please upload it to your Streamlit project.")
+    st.stop()
 
-    results.append({
-        "Ticker": ticker,
-        "Price": round(last["Close"], 2),
-        "Trend": last["Trend"],
-        "MACD": round(last["MACD"], 3),
-        "Signal": round(last["Signal"], 3),
-        "Hist": round(last["Hist"], 3),
-        "BUY": bool(last["BUY"]),
-        "SELL": bool(last["SELL"]),
-        "Fib 38.2%": round(fib["38.2%"], 2),
-        "Fib 50%": round(fib["50%"], 2),
-        "Fib 61.8%": round(fib["61.8%"], 2)
-    })
+# Now tickers exists — safe to use
+st.sidebar.header("Loaded Tickers")
+st.sidebar.write(tickers)
