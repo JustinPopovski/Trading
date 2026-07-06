@@ -28,6 +28,7 @@ st.sidebar.write(tickers)
 # ─────────────────────────────────────────────
 # Indicator functions
 # ─────────────────────────────────────────────
+
 def macd(df):
     df["EMA12"] = df["Close"].ewm(span=12).mean()
     df["EMA26"] = df["Close"].ewm(span=26).mean()
@@ -80,66 +81,49 @@ def fibonacci_levels(df, lookback=60):
 # ─────────────────────────────────────────────
 # Main dashboard logic
 # ─────────────────────────────────────────────
-results = []
 
-st.subheader("🔍 Deep Ticker Diagnostics")
+results = []
+bad_tickers = []
 
 for ticker in tickers:
     st.write(f"🔄 Downloading: {ticker}")
 
     df = yf.download(ticker, period="1y")
 
-    # Print raw DataFrame info
-    st.write(f"### Raw Data for {ticker}")
-    st.write(df.head())
-    st.write("Columns:", df.columns.tolist())
-    st.write("Dtypes:", df.dtypes)
-    st.write("NaN counts:", df.isna().sum())
-
     # 1. Empty DataFrame
     if df.empty:
         st.error(f"{ticker}: ❌ EMPTY DATAFRAME")
+        bad_tickers.append((ticker, "Empty DataFrame"))
         continue
 
     # 2. Flatten MultiIndex columns
     if isinstance(df.columns, pd.MultiIndex):
-        st.warning(f"{ticker}: ⚠️ MultiIndex columns detected — flattening")
         df.columns = df.columns.get_level_values(0)
 
     # 3. Required columns
     required_cols = {"Close", "High", "Low"}
     if not required_cols.issubset(df.columns):
         st.error(f"{ticker}: ❌ Missing OHLC columns")
+        bad_tickers.append((ticker, "Missing OHLC"))
         continue
 
-    # 4. Check numeric dtype
-    numeric_issue = False
+    # 4. Convert OHLC columns to numeric (THIS FIXES YOUR CRASH)
     for col in required_cols:
-        if not pd.api.types.is_numeric_dtype(df[col]):
-            st.error(f"{ticker}: ❌ Column {col} is NOT numeric (dtype={df[col].dtype})")
-            numeric_issue = True
-    if numeric_issue:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # 5. Drop rows that failed conversion
+    df = df.dropna(subset=["Close", "High", "Low"])
+
+    if df.empty:
+        st.error(f"{ticker}: ❌ All OHLC values became NaN after conversion")
+        bad_tickers.append((ticker, "Non-numeric OHLC"))
         continue
 
-    # 5. Check for NaN-only columns
-    if df["Close"].dropna().empty:
-        st.error(f"{ticker}: ❌ Close column is all NaN")
+    # 6. Must have at least 2 rows to compute EMA
+    if len(df) < 2:
+        st.error(f"{ticker}: ❌ Not enough data to compute indicators")
+        bad_tickers.append((ticker, "Too few rows"))
         continue
-    if df["High"].dropna().empty or df["Low"].dropna().empty:
-        st.error(f"{ticker}: ❌ High/Low columns invalid")
-        continue
-
-    # 6. Check for infinite values
-    if not np.isfinite(df["Close"]).all():
-        st.error(f"{ticker}: ❌ Close contains infinite values")
-        continue
-
-    # 7. Check for object values inside numeric columns
-    if df["Close"].apply(lambda x: isinstance(x, str)).any():
-        st.error(f"{ticker}: ❌ Close contains string values")
-        continue
-
-    st.success(f"{ticker}: ✅ Passed all diagnostics — running indicators")
 
     # Indicators
     df = macd(df)
@@ -163,6 +147,9 @@ for ticker in tickers:
         "Fib 61.8%": round(fib["61.8%"], 2)
     })
 
+# ─────────────────────────────────────────────
+# Display results
+# ─────────────────────────────────────────────
 
 st.subheader("🚨 Bad Tickers Summary")
 if len(bad_tickers) == 0:
@@ -181,7 +168,6 @@ st.subheader("📐 Fibonacci Retracement Levels")
 for row in results:
     ticker = row["Ticker"]
     st.write(f"### {ticker}")
-    # Re-download for fib table (safe because ticker already passed checks)
     df = yf.download(ticker, period="1y")
     if df.empty:
         continue
