@@ -220,8 +220,8 @@ with tab_summary:
 
     styled = (
         df_summary.style
-        .applymap(_colour_signal, subset=["Signal"])
-        .applymap(_colour_score,  subset=["Score"])
+        .map(_colour_signal, subset=["Signal"])
+        .map(_colour_score,  subset=["Score"])
         .format({
             "Close":        "${:.2f}",
             "MA200":        "${:.2f}",
@@ -502,8 +502,8 @@ with tab_screener:
         if not filtered.empty:
             st.dataframe(
                 filtered.style
-                .applymap(_colour_signal, subset=["Signal"])
-                .applymap(_colour_score,  subset=["Score"])
+                .map(_colour_signal, subset=["Signal"])
+                .map(_colour_score,  subset=["Score"])
                 .format({
                     "Close":        "${:.2f}",
                     "MA200":        "${:.2f}",
