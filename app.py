@@ -7,7 +7,7 @@ st.set_page_config(page_title="Trading Dashboard", layout="wide")
 st.title("📈 MACD + 200-Day + Support/Resistance + Fibonacci Trading Dashboard")
 
 # ─────────────────────────────────────────────
-# Load tickers FIRST — before any loops
+# Load tickers
 # ─────────────────────────────────────────────
 file_path = "Tickers.txt"
 
@@ -26,9 +26,8 @@ st.sidebar.header("Loaded Tickers")
 st.sidebar.write(tickers)
 
 # ─────────────────────────────────────────────
-# Indicator Functions
+# Indicator functions
 # ─────────────────────────────────────────────
-
 def macd(df):
     df["EMA12"] = df["Close"].ewm(span=12).mean()
     df["EMA26"] = df["Close"].ewm(span=26).mean()
@@ -43,8 +42,8 @@ def trend_filter(df):
     return df
 
 def pivots(df, left=5, right=5):
-    df["Support"] = df["Low"].shift(left).rolling(left+right+1).min()
-    df["Resistance"] = df["High"].shift(left).rolling(left+right+1).max()
+    df["Support"] = df["Low"].shift(left).rolling(left + right + 1).min()
+    df["Resistance"] = df["High"].shift(left).rolling(left + right + 1).max()
     return df
 
 def generate_signals(df):
@@ -59,9 +58,6 @@ def generate_signals(df):
 
     return df
 
-# ─────────────────────────────────────────────
-# Fibonacci Levels
-# ─────────────────────────────────────────────
 def fibonacci_levels(df, lookback=60):
     if len(df) < lookback:
         lookback = len(df)
@@ -79,53 +75,65 @@ def fibonacci_levels(df, lookback=60):
         "78.6%": swing_high - 0.786 * diff,
         "100% (High)": swing_high
     }
-
     return levels
 
 # ─────────────────────────────────────────────
-# Main Dashboard Logic
+# Main dashboard logic
 # ─────────────────────────────────────────────
-
 results = []
+bad_tickers = []
+
+st.subheader("🔍 Ticker Health Check")
 
 for ticker in tickers:
-    st.write(f"🔄 Downloading: {ticker}")
-
+    st.write(f"Checking {ticker}...")
     df = yf.download(ticker, period="1y")
 
-    # ─────────────────────────────────────────────
-    # STRONG SAFETY CHECKS — prevents ALL crashes
-    # ─────────────────────────────────────────────
-
-    # 1. DataFrame must not be empty
+    # 1. Empty DataFrame
     if df.empty:
-        st.warning(f"⚠️ No data returned for {ticker}. Skipping.")
+        st.error(f"{ticker}: ❌ EMPTY DATAFRAME")
+        bad_tickers.append((ticker, "Empty DataFrame"))
         continue
 
-    # 2. Must contain required OHLC columns
+    # 2. Flatten MultiIndex columns if present
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # 3. Required columns
     required_cols = {"Close", "High", "Low"}
     if not required_cols.issubset(df.columns):
-        st.warning(f"⚠️ Missing required price data for {ticker}. Skipping.")
+        st.error(f"{ticker}: ❌ Missing OHLC columns")
+        bad_tickers.append((ticker, "Missing OHLC"))
         continue
 
-    # 3. Close column must contain real numeric values
-    if df["Close"].dropna().empty:
-        st.warning(f"⚠️ Close prices are all NaN for {ticker}. Skipping.")
+    # 4. Ensure numeric dtype
+    numeric_problem = False
+    for col in required_cols:
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            st.error(f"{ticker}: ❌ Column {col} is NOT numeric")
+            bad_tickers.append((ticker, f"{col} not numeric"))
+            numeric_problem = True
+            break
+    if numeric_problem:
         continue
 
-    # 4. Ensure High/Low also contain numeric values
-    if df["High"].dropna().empty or df["Low"].dropna().empty:
-        st.warning(f"⚠️ High/Low prices invalid for {ticker}. Skipping.")
+    # 5. Ensure enough valid values
+    if df["Close"].dropna().shape[0] < 2:
+        st.error(f"{ticker}: ❌ Close column invalid (too few values)")
+        bad_tickers.append((ticker, "Close invalid"))
+        continue
+    if df["High"].dropna().shape[0] < 2 or df["Low"].dropna().shape[0] < 2:
+        st.error(f"{ticker}: ❌ High/Low columns invalid (too few values)")
+        bad_tickers.append((ticker, "High/Low invalid"))
         continue
 
-    # ─────────────────────────────────────────────
-    # Indicators (safe to run now)
-    # ─────────────────────────────────────────────
+    st.success(f"{ticker}: ✅ Passed all checks")
+
+    # Indicators
     df = macd(df)
     df = trend_filter(df)
     df = pivots(df)
     df = generate_signals(df)
-
     fib = fibonacci_levels(df)
     last = df.iloc[-1]
 
@@ -143,24 +151,28 @@ for ticker in tickers:
         "Fib 61.8%": round(fib["61.8%"], 2)
     })
 
-# Display main signal table
+st.subheader("🚨 Bad Tickers Summary")
+if len(bad_tickers) == 0:
+    st.success("All tickers passed health check!")
+else:
+    for t, reason in bad_tickers:
+        st.error(f"{t}: {reason}")
+
 st.subheader("📊 Trading Signals")
 if len(results) == 0:
-    st.error("No valid tickers returned data. Check Tickers.txt.")
+    st.error("No valid tickers returned data. Check Tickers.txt and health check above.")
 else:
     st.dataframe(pd.DataFrame(results))
 
-# ─────────────────────────────────────────────
-# Display Fibonacci Tables
-# ─────────────────────────────────────────────
 st.subheader("📐 Fibonacci Retracement Levels")
-
-for ticker in tickers:
+for row in results:
+    ticker = row["Ticker"]
+    st.write(f"### {ticker}")
+    # Re-download for fib table (safe because ticker already passed checks)
     df = yf.download(ticker, period="1y")
-
     if df.empty:
         continue
-
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     fib = fibonacci_levels(df)
-    st.write(f"### {ticker}")
     st.table(pd.DataFrame.from_dict(fib, orient="index", columns=["Price"]))
