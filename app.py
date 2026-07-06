@@ -81,53 +81,65 @@ def fibonacci_levels(df, lookback=60):
 # Main dashboard logic
 # ─────────────────────────────────────────────
 results = []
-bad_tickers = []
 
-st.subheader("🔍 Ticker Health Check")
+st.subheader("🔍 Deep Ticker Diagnostics")
 
 for ticker in tickers:
-    st.write(f"Checking {ticker}...")
+    st.write(f"🔄 Downloading: {ticker}")
+
     df = yf.download(ticker, period="1y")
+
+    # Print raw DataFrame info
+    st.write(f"### Raw Data for {ticker}")
+    st.write(df.head())
+    st.write("Columns:", df.columns.tolist())
+    st.write("Dtypes:", df.dtypes)
+    st.write("NaN counts:", df.isna().sum())
 
     # 1. Empty DataFrame
     if df.empty:
         st.error(f"{ticker}: ❌ EMPTY DATAFRAME")
-        bad_tickers.append((ticker, "Empty DataFrame"))
         continue
 
-    # 2. Flatten MultiIndex columns if present
+    # 2. Flatten MultiIndex columns
     if isinstance(df.columns, pd.MultiIndex):
+        st.warning(f"{ticker}: ⚠️ MultiIndex columns detected — flattening")
         df.columns = df.columns.get_level_values(0)
 
     # 3. Required columns
     required_cols = {"Close", "High", "Low"}
     if not required_cols.issubset(df.columns):
         st.error(f"{ticker}: ❌ Missing OHLC columns")
-        bad_tickers.append((ticker, "Missing OHLC"))
         continue
 
-    # 4. Ensure numeric dtype
-    numeric_problem = False
+    # 4. Check numeric dtype
+    numeric_issue = False
     for col in required_cols:
         if not pd.api.types.is_numeric_dtype(df[col]):
-            st.error(f"{ticker}: ❌ Column {col} is NOT numeric")
-            bad_tickers.append((ticker, f"{col} not numeric"))
-            numeric_problem = True
-            break
-    if numeric_problem:
+            st.error(f"{ticker}: ❌ Column {col} is NOT numeric (dtype={df[col].dtype})")
+            numeric_issue = True
+    if numeric_issue:
         continue
 
-    # 5. Ensure enough valid values
-    if df["Close"].dropna().shape[0] < 2:
-        st.error(f"{ticker}: ❌ Close column invalid (too few values)")
-        bad_tickers.append((ticker, "Close invalid"))
+    # 5. Check for NaN-only columns
+    if df["Close"].dropna().empty:
+        st.error(f"{ticker}: ❌ Close column is all NaN")
         continue
-    if df["High"].dropna().shape[0] < 2 or df["Low"].dropna().shape[0] < 2:
-        st.error(f"{ticker}: ❌ High/Low columns invalid (too few values)")
-        bad_tickers.append((ticker, "High/Low invalid"))
+    if df["High"].dropna().empty or df["Low"].dropna().empty:
+        st.error(f"{ticker}: ❌ High/Low columns invalid")
         continue
 
-    st.success(f"{ticker}: ✅ Passed all checks")
+    # 6. Check for infinite values
+    if not np.isfinite(df["Close"]).all():
+        st.error(f"{ticker}: ❌ Close contains infinite values")
+        continue
+
+    # 7. Check for object values inside numeric columns
+    if df["Close"].apply(lambda x: isinstance(x, str)).any():
+        st.error(f"{ticker}: ❌ Close contains string values")
+        continue
+
+    st.success(f"{ticker}: ✅ Passed all diagnostics — running indicators")
 
     # Indicators
     df = macd(df)
@@ -150,6 +162,7 @@ for ticker in tickers:
         "Fib 50%": round(fib["50%"], 2),
         "Fib 61.8%": round(fib["61.8%"], 2)
     })
+
 
 st.subheader("🚨 Bad Tickers Summary")
 if len(bad_tickers) == 0:
